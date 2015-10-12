@@ -1,0 +1,129 @@
+---
+title: "Practical machine learning project"
+output: html_document
+---
+## Preparation
+
+In order to conduct this exercise we need to choose the working directory and select some packages to use. In order the results to be reproduced we also set a seed.
+```{r}
+rm (list = ls ())
+setwd("~/Work/Cursos/Coursera Applied Machine learning/Proyecto")
+library(caret)
+library(AppliedPredictiveModeling)
+library(rattle)
+library(rpart)
+library(randomForest)
+set.seed(1000)
+```
+##Data obtention
+
+We automatically download the training data
+```{r}
+fileURL1<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+if(!file.exists("pml-training.csv"))
+{
+  download.file(fileURL1,destfile="pml-training.csv",method="curl")
+  dateDownloaded_Training <- date()
+}
+```
+
+and the testing data
+```{r}
+fileURL2<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+if(!file.exists("pml-testing.csv"))
+{
+  download.file(fileURL2,destfile="pml-training.csv",method="curl")
+  dateDownloaded_Testing <- date()
+}
+```
+We read the data. They contain missing values. We make sure we read them correctly
+```{r}
+training <- read.csv("pml-training.csv", na.strings=c("NA","#DIV/0!",""))
+testing <- read.csv("pml-testing.csv", na.strings=c("NA","#DIV/0!",""))
+```
+
+We partionate the data to perform cross validation. 60% of data for training and 40% for testing
+```{r}
+trainIndex <- createDataPartition(y= training$classe, p=0.6, list=FALSE)
+subset_training <- training[trainIndex,]
+subset_testing <- training[-trainIndex,]
+```
+
+##Cleaning data
+Missing values: We remove those numeric variables with many missing values. 
+Those variables that have more than 60% of the data missing are removed
+
+```{r}
+a <-sapply(subset_training, function(x) sum(is.na(x))>round(0.6*dim(subset_training)[1]))
+clean_training <- training[a==FALSE]
+```
+We check if there are still missing values to handle
+```{r}
+sum(is.na(clean_training))
+```
+We could eliminate summary variables like those starting by std but this have already been 
+eliminated in the previous step because they had many missing values.
+
+We eliminate variables that do not provide valuable information:
+```{r}
+clean_training <- clean_training[ , -which(names(clean_training) %in% c("num_window","X","user_name","raw_timestamp_part_1","raw_timestamp_part_2","cvtd_timestamp", "new_window"))]
+```
+
+##Training ML models
+
+We train a decision tree:
+```{r}
+modFitDT <- rpart(classe ~ ., data=clean_training, method="class")
+fancyRpartPlot(modFitDT)
+```
+
+Now we make the same transformations performed in the training set in the testing datasets
+
+```{r}
+index1 <- colnames(clean_training)
+index2 <- colnames(clean_training[, -53]) #already with classe column removed
+clean_subset_testing <- subset_testing[,index1]
+testing <- testing[index2]
+```
+We make predictions with the testing data sets
+```{r}
+prediction2 <- predict(modFitDT, clean_subset_testing, type = "class")
+```
+And obtain the confusion Matrix
+```{r}
+confusionMatrix(prediction2, clean_subset_testing$classe)
+```
+We observe that the accuracy is 0.75 in the testing subset. We train a random forest and see if we improve this result:
+
+```{r}
+modFitRF <- randomForest(classe ~. , data=clean_training)
+prediction4 <- predict(modFitRF, clean_training, type = "class")
+confusionMatrix(prediction4, clean_training$classe)
+```
+We test it in the testing subset
+```{r}
+prediction5 <- predict(modFitRF, clean_subset_testing, type = "class")
+confusionMatrix(prediction5, clean_subset_testing$classe)
+```
+We see that the results are much better with Random Forest than with a decision tree. We obtain now 100% accuracy.
+
+We make predictions in the testing set
+```{r}
+prediction6 <- predict(modFitRF, testing, type = "class")
+```
+
+And write the prediction results of the 20 cases of the testing test into 20 different files:
+
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(as.character(prediction6))
+
+```
+
